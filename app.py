@@ -1,46 +1,100 @@
-import streamlit as st
+# Install dependencies
+!pip install nltk scikit-learn pandas PyPDF2
+
+# Imports
 import pandas as pd
-from src.analyzer import analyze_resume
-from utils.file_handler import extract_text_from_pdf
+import re
+import nltk
+from nltk.corpus import stopwords
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from PyPDF2 import PdfReader
 
-st.set_page_config(page_title="Skill Gap Analyzer", layout="centered")
+nltk.download('stopwords')
+STOPWORDS = set(stopwords.words('english'))
 
-st.title("📄 Resume Skill Gap Analyzer")
+# ---------------------------
+# Create dataset
+# ---------------------------
+skills = [
+    "python", "machine learning", "deep learning", "data analysis",
+    "sql", "excel", "nlp", "communication", "problem solving",
+    "java", "c++", "statistics", "pandas", "numpy"
+]
 
-# Upload Resume
-uploaded_file = st.file_uploader("Upload Resume (PDF)", type=["pdf"])
+skills_df = pd.DataFrame(skills, columns=["skills"])
+skills_list = skills_df["skills"].tolist()
 
-# OR manual input
-resume_text_input = st.text_area("Or Paste Resume Text")
+# ---------------------------
+# Functions
+# ---------------------------
 
-job_desc = st.text_area("Paste Job Description")
+def clean_text(text):
+    text = text.lower()
+    text = re.sub(r'[^a-zA-Z ]', ' ', text)
+    words = text.split()
+    words = [w for w in words if w not in STOPWORDS]
+    return " ".join(words)
 
-if st.button("Analyze"):
-    # Load skills dataset
-    skills_df = pd.read_csv("data/skills_dataset.csv")
-    skills_list = skills_df["skills"].tolist()
 
-    # Extract resume text
-    if uploaded_file:
-        resume_text = extract_text_from_pdf(uploaded_file)
-    else:
-        resume_text = resume_text_input
+def extract_skills(text, skills_list):
+    text = text.lower()
+    return list(set([skill for skill in skills_list if skill in text]))
 
-    if not resume_text or not job_desc:
-        st.warning("Please provide both resume and job description")
-    else:
-        result = analyze_resume(resume_text, job_desc, skills_list)
 
-        st.subheader(f" Match Score: {result['match_score']}%")
+def compute_similarity(resume, job_desc):
+    vectorizer = TfidfVectorizer()
+    tfidf = vectorizer.fit_transform([resume, job_desc])
+    score = cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]
+    return round(score * 100, 2)
 
-        st.subheader("✅ Resume Skills")
-        st.write(result["resume_skills"])
 
-        st.subheader("📌 Job Skills Required")
-        st.write(result["job_skills"])
+def analyze_resume(resume_text, job_desc, skills_list):
+    resume_clean = clean_text(resume_text)
+    job_clean = clean_text(job_desc)
 
-        st.subheader("❌ Missing Skills")
-        if result["missing_skills"]:
-            st.write(result["missing_skills"])
-        else:
-            st.success("You match all required skills! 🎉")
+    resume_skills = extract_skills(resume_clean, skills_list)
+    job_skills = extract_skills(job_clean, skills_list)
+
+    score = compute_similarity(resume_clean, job_clean)
+
+    missing_skills = list(set(job_skills) - set(resume_skills))
+
+    return {
+        "match_score": score,
+        "resume_skills": resume_skills,
+        "job_skills": job_skills,
+        "missing_skills": missing_skills
+    }
+
+
+# ---------------------------
+# OPTIONAL: PDF Reader
+# ---------------------------
+def extract_text_from_pdf(file_path):
+    reader = PdfReader(file_path)
+    text = ""
+    for page in reader.pages:
+        if page.extract_text():
+            text += page.extract_text()
+    return text
+
+
+# ---------------------------
+# TEST INPUT (EDIT THIS)
+# ---------------------------
+resume = input("Paste Resume Text: ")
+job_desc = input("Paste Job Description: ")
+
+# ---------------------------
+# RUN ANALYSIS
+# ---------------------------
+result = analyze_resume(resume, job_desc, skills_list)
+
+# ---------------------------
+# OUTPUT
+# ---------------------------
+print("\n🎯 Match Score:", result["match_score"], "%")
+print("\n✅ Resume Skills:", result["resume_skills"])
+print("\n📌 Job Skills Required:", result["job_skills"])
+print("\n❌ Missing Skills:", result["missing_skills"] if result["missing_skills"] else "None 🎉")
